@@ -17,6 +17,7 @@
  */
 
 #include "sxiv.h"
+#include <stdio.h>
 #define _IMAGE_CONFIG
 #include "config.h"
 
@@ -24,6 +25,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <signal.h>
 
 void remove_file(int, bool);
 void load_image(int);
@@ -63,6 +65,68 @@ bool cg_quit(arg_t _)
 		}
 	}
 	exit(EXIT_SUCCESS);
+}
+
+bool cg_open_dml(arg_t t)
+{
+	pid_t pid;
+	int pfd[2];
+  
+	if ((pid = fork()) == 0) {
+    
+      
+		// close(pfd[1]);
+		// dup2(pfd[0], 0);
+
+#define MAX_ENVIRON 1024
+    const char *new_environ[MAX_ENVIRON + 1];
+
+
+    // setenv is an option
+    int j=0;
+    new_environ[j++] = "DML_FILE=/home/noko/.config/sxiv/main.dml";
+    char file[256];
+    sprintf(file, "file=%s", files[fileidx].path);
+
+    // files*
+
+    new_environ[j++] = file;
+
+    for(;environ[j]!=NULL; ++j){
+        if (j > MAX_ENVIRON) {
+            fprintf(stderr, "ERROR: There are more environment variables then suppoted, the rest are ignored!\n");
+            break;
+        }
+
+        // Check if DML_FILE is already defined
+
+        new_environ[j] = environ[j];
+        printf("%3u %s\n", j, environ[j]);
+    }
+
+    new_environ[j] = NULL;
+
+		execle("/usr/bin/dml", "dml", "--dml-file", 
+        "/home/noko/.config/sxiv/main.dml", NULL, new_environ);
+
+    exit(99);
+	}
+	// close(pfd[0]);
+	// if (pid < 0) {
+	// 	error(0, errno, "fork");
+	// 	fclose(pfs);
+	// 	goto end;
+	// }
+
+
+	// if (options->to_stdout && markcnt > 0) {
+	// 	for (i = 0; i < filecnt; i++) {
+	// 		if (files[i].flags & FF_MARK)
+	// 			printf("%s\n", files[i].name);
+	// 	}
+	// }
+	// exit(EXIT_SUCCESS);
+	return true;
 }
 
 bool cg_switch_mode(arg_t _)

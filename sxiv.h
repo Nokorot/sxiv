@@ -27,6 +27,9 @@
 #include <Imlib2.h>
 #include <X11/Xlib.h>
 
+
+extern char** environ;
+
 /*
  * Annotation for functions called in cleanup().
  * These functions are not allowed to call error(!0, ...) or exit().
