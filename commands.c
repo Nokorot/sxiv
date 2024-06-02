@@ -17,6 +17,8 @@
  */
 
 #include "sxiv.h"
+#include <fontconfig/fontconfig.h>
+#include <stdbool.h>
 #include <stdio.h>
 #define _IMAGE_CONFIG
 #include "config.h"
@@ -70,62 +72,91 @@ bool cg_quit(arg_t _)
 bool cg_open_dml(arg_t t)
 {
 	pid_t pid;
-	int pfd[2];
-  
-	if ((pid = fork()) == 0) {
-    
-      
-		// close(pfd[1]);
-		// dup2(pfd[0], 0);
+
+	int from_child[2];
+	int to_child[2];
+  pipe(to_child);
+  pipe(from_child);
 
 #define MAX_ENVIRON 1024
-    const char *new_environ[MAX_ENVIRON + 1];
+  const char *new_environ[MAX_ENVIRON + 1];
 
+  // setenv is an option
+  int j=0;
+  char file[256];
+  sprintf(file, "img=%s", files[fileidx].path);
+	if (options->to_stdout && markcnt > 0) {
+      char marked_imgs[256];
+      sprintf(marked_imgs, "marked_imgs=/proc/self/fd/%u", to_child[0]); 
+      // A pipe is probably a bad idea a tmp file would be much better
+      new_environ[j++] = marked_imgs;
+  }
+  new_environ[j++] = file;
 
-    // setenv is an option
-    int j=0;
-    new_environ[j++] = "DML_FILE=/home/noko/.config/sxiv/main.dml";
-    char file[256];
-    sprintf(file, "file=%s", files[fileidx].path);
+  for(;environ[j]!=NULL; ++j){
+      if (j > MAX_ENVIRON) {
+          fprintf(stderr, "ERROR: There are more environment variables then supported, the rest are ignored!\n");
+          break;
+      }
 
-    // files*
+      new_environ[j] = environ[j];
+  }
 
-    new_environ[j++] = file;
+  new_environ[j] = NULL;
 
-    for(;environ[j]!=NULL; ++j){
-        if (j > MAX_ENVIRON) {
-            fprintf(stderr, "ERROR: There are more environment variables then suppoted, the rest are ignored!\n");
-            break;
-        }
+  char *dmenu = getenv("DMENU");
+  pipe(from_child);
 
-        // Check if DML_FILE is already defined
+  int p1 = fork();
+  if (p1 == 0) {
+      close(from_child[0]);
+      dup2(from_child[1], 1);
+      int res = execle("/usr/bin/_dml_composer", "_dml_composer", "--browse-prg", dmenu,
+          "/home/noko/.config/sxiv/main.dml", NULL, new_environ);
 
-        new_environ[j] = environ[j];
-        printf("%3u %s\n", j, environ[j]);
-    }
+      if (res == -1)
+          fprintf(stderr, "ERROR: Failed to find '/usr/bin/_dml_composer'");
+  }
+  close(from_child[1]);
 
-    new_environ[j] = NULL;
+  int status;
+  waitpid(p1, &status, 0);
+  if (status)
+      printf("Exited with %u\n", status);
 
-		execle("/usr/bin/dml", "dml", "--dml-file", 
-        "/home/noko/.config/sxiv/main.dml", NULL, new_environ);
+  FILE *from_child_fd = fdopen(from_child[0], "r");
+  char buf[1024];
+  if (!fgets(buf, sizeof buf, from_child_fd))  {
+      close(to_child[0]);
+      close(to_child[1]);
+      fclose(from_child_fd);
+      close(from_child[0]);
+      return true;
+  }
 
-    exit(99);
+  pid = fork();
+  if (pid == 0) {
+    close(to_child[1]);
+    // dup2(to_child[0], 0);
+
+    int res = execle("/bin/sh", "sh", "-c", buf, NULL, new_environ);
+    if (res == -1)
+        fprintf(stderr, "ERROR: Failed to execute '/bin/sh'");
+    exit(99); // This is if execute fails
 	}
-	// close(pfd[0]);
-	// if (pid < 0) {
-	// 	error(0, errno, "fork");
-	// 	fclose(pfs);
-	// 	goto end;
-	// }
 
+  FILE *to_child_fd = fdopen(to_child[1], "w");
+	if (options->to_stdout && markcnt > 0) {
+		for (int i = 0; i < filecnt; i++) {
+			if (files[i].flags & FF_MARK)
+				fprintf(to_child_fd, "%s\n", files[i].name);
+		}
+	}
 
-	// if (options->to_stdout && markcnt > 0) {
-	// 	for (i = 0; i < filecnt; i++) {
-	// 		if (files[i].flags & FF_MARK)
-	// 			printf("%s\n", files[i].name);
-	// 	}
-	// }
-	// exit(EXIT_SUCCESS);
+  fclose(to_child_fd);
+  close(to_child[1]);
+
+  // wait(&status);
 	return true;
 }
 
